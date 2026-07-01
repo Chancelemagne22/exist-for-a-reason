@@ -1,0 +1,25 @@
+# Secrets - never commit real credentials
+.env
+
+# Generated embeddings - large, regenerable via embed_chunks.py, not needed in repo
+rag/chunks_embedded.jsonl
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Node / Next.js (for the frontend, once it exists)
+node_modules/
+.next/
+out/
+*.log
+npm-debug.log*
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
