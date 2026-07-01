@@ -1,2 +1,2 @@
 # exist-for-a-reason
-im to poor to avail claude
+im too poor to avail claude
