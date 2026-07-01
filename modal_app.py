@@ -52,7 +52,7 @@ vllm_cache_vol = modal.Volume.from_name("efar-vllm-cache", create_if_missing=Tru
 @app.function(
     image=vllm_image,
     gpu="A10G",
-    scaledown_window=30,       # sleep fast after idle - you said cold starts are fine
+    scaledown_window=300,       # sleep fast after idle - you said cold starts are fine
     timeout=10 * MINUTES,      # max time to wait for container start + first response
     min_containers=0,          # never keep it warm = never pay when you're not using it
     volumes={

@@ -15,6 +15,7 @@ Requires SUPABASE_DB_URL in your .env (same one used by upload_chunks.py).
 
 import os
 import sys
+import re
 
 import psycopg2
 from pgvector.psycopg2 import register_vector
@@ -23,10 +24,16 @@ from dotenv import load_dotenv
 
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
 TOP_K = 5
+KEYWORD_MATCH_LIMIT = 3  # chunks to pull per exact class/service name match
 
 # bge models expect this exact instruction prefix on QUERIES (not documents)
 # for best retrieval accuracy - this is part of how the model was trained.
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
+
+# Roblox class/service names are CamelCase, e.g. PathfindingService, Humanoid.
+# If the question mentions one literally, we guarantee its docs are included -
+# pure vector similarity can miss them when the question is phrased generically.
+CAMELCASE_PATTERN = re.compile(r"\b[A-Z][a-zA-Z0-9]{3,}\b")
 
 load_dotenv()
 
@@ -34,6 +41,49 @@ load_dotenv()
 def embed_query(model, question):
     prefixed = QUERY_PREFIX + question
     return list(model.embed([prefixed]))[0].tolist()
+
+
+def keyword_matches(cur, question):
+    """Find chunks whose title exactly matches a CamelCase term mentioned in the question."""
+    candidates = set(CAMELCASE_PATTERN.findall(question))
+    if not candidates:
+        return []
+
+    matches = []
+    for term in candidates:
+        cur.execute(
+            """
+            select title, section, source_type, text
+            from doc_chunks
+            where lower(title) = lower(%s)
+            order by (section = 'overview') desc, section
+            limit %s
+            """,
+            (term, KEYWORD_MATCH_LIMIT),
+        )
+        rows = cur.fetchall()
+        matches.extend(
+            {"title": r[0], "section": r[1], "source_type": r[2], "text": r[3], "distance": 0.0}
+            for r in rows
+        )
+    return matches
+
+
+def vector_matches(cur, query_vector, top_k):
+    cur.execute(
+        """
+        select title, section, source_type, text, embedding <=> %s::vector as distance
+        from doc_chunks
+        order by embedding <=> %s::vector
+        limit %s
+        """,
+        (query_vector, query_vector, top_k),
+    )
+    rows = cur.fetchall()
+    return [
+        {"title": r[0], "section": r[1], "source_type": r[2], "text": r[3], "distance": r[4]}
+        for r in rows
+    ]
 
 
 def retrieve(question, top_k=TOP_K):
@@ -51,25 +101,22 @@ def retrieve(question, top_k=TOP_K):
     register_vector(conn)
     cur = conn.cursor()
 
-    # <=> is pgvector's cosine distance operator - smaller = more similar.
-    # We order by distance ascending and take the top_k closest chunks.
-    cur.execute(
-        """
-        select title, section, source_type, text, embedding <=> %s::vector as distance
-        from doc_chunks
-        order by embedding <=> %s::vector
-        limit %s
-        """,
-        (query_vector, query_vector, top_k),
-    )
-    rows = cur.fetchall()
+    # Hybrid retrieval: guaranteed exact-name matches + vector similarity search,
+    # merged and deduplicated (exact matches take priority since distance=0).
+    kw_results = keyword_matches(cur, question)
+    vec_results = vector_matches(cur, query_vector, top_k)
+
     cur.close()
     conn.close()
 
-    results = [
-        {"title": r[0], "section": r[1], "source_type": r[2], "text": r[3], "distance": r[4]}
-        for r in rows
-    ]
+    seen = set()
+    results = []
+    for r in kw_results + vec_results:
+        key = (r["title"], r["section"])
+        if key not in seen:
+            seen.add(key)
+            results.append(r)
+
     return results
 
 
