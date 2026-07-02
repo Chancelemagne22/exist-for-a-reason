@@ -1,0 +1,16 @@
+# Core
+modal
+streamlit
+python-dotenv
+requests
+
+# RAG pipeline
+fastembed
+tqdm
+PyYAML
+psycopg2-binary
+pgvector          # provides pgvector.psycopg2 integration
+
+# Optional (not currently used in code — for a planned FastAPI layer)
+fastapi
+uvicorn
