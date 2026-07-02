@@ -195,13 +195,10 @@ cd exist-for-a-reason
 ### Step 2: Install Python Dependencies
 
 ```bash
-pip install modal streamlit python-dotenv requests pydantic
+pip install -r requirements.txt
 ```
 
-*(Optional: for the RAG pipeline)*
-```bash
-pip install fastapi uvicorn
-```
+This installs everything needed to run EFAR, including the RAG pipeline (`fastembed`, `psycopg2-binary`, `pgvector`, etc.). `fastapi` and `uvicorn` are also included but currently optional/unused — they're there for a planned future API layer.
 
 ### Step 3: Set Up Modal
 
@@ -457,6 +454,7 @@ Invalid code is highlighted with explanations.
 exist-for-a-reason/
 ├── README.md                      # This file
 ├── LICENSE                        # MIT License
+├── requirements.txt               # Python dependencies
 ├── system_prompt.md               # Game context template (customize this!)
 ├── modal_app.py                   # Backend: Qwen model deployment to Modal
 ├── .env.example                   # Environment variables template
@@ -706,7 +704,7 @@ modal deploy modal_app.py
 We welcome contributions! Here's how to get involved:
 
 ### Reporting Issues
-- Found a bug? [Open a GitHub Issue](https://github.com/yourusername/exist-for-a-reason/issues)
+- Found a bug? [Open a GitHub Issue](https://github.com/Chancelmagne22/exist-for-a-reason/issues)
 - Include:
   - Python version & OS
   - Steps to reproduce
@@ -821,7 +819,6 @@ EFAR is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
 
 - 💬 **GitHub Issues** — Bug reports, feature requests
 - 💭 **GitHub Discussions** — Questions, ideas, show-and-tell
-- 🐦 **Twitter** — [@your-twitter] Updates and announcements
 
 ---
 
