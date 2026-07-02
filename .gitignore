@@ -3,7 +3,7 @@
 .env.local
 # Generated embeddings - large, regenerable via embed_chunks.py, not needed in repo
 rag/chunks_embedded.jsonl
-
+rag/creator-docs
 # Python
 __pycache__/
 *.pyc
