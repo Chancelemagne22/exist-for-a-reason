@@ -64,7 +64,16 @@ def chunk_members(class_name, members, kind, prefix_sep):
         lines = []
         for m in batch:
             name = m.get("name", "?")
+            # Some members (e.g. PathfindingService:CreatePath) keep their
+            # real explanatory text in `description` instead of `summary`,
+            # with `summary` left as ''. Fall back to description when
+            # summary is empty; if both are present and differ, keep both -
+            # summary is often a one-liner while description adds detail
+            # (e.g. valid keys/values for a parameters table).
             summary = clean(m.get("summary", ""))
+            description = clean(m.get("description", ""))
+            if description and description != summary:
+                summary = f"{summary}\n\n{description}".strip() if summary else description
             deprecated = m.get("deprecation_message")
             if kind == "methods":
                 params = format_params(m.get("parameters"))
@@ -171,22 +180,31 @@ def process_markdown_doc(filepath):
 def main():
     all_chunks = []
 
-    yaml_files = glob.glob(f"{DOCS_ROOT}/reference/engine/**/*.yaml", recursive=True)
+    # Gather and normalize YAML reference files
+    raw_yaml_files = glob.glob(f"{DOCS_ROOT}/reference/engine/**/*.yaml", recursive=True)
+    yaml_files = sorted(list(set(fp.replace("\\", "/") for fp in raw_yaml_files)))
+    
     for fp in yaml_files:
         try:
             all_chunks.extend(process_yaml_doc(fp))
         except Exception as e:
             print(f"  skip (yaml parse error): {fp} -> {e}")
 
-    md_files = glob.glob(f"{DOCS_ROOT}/luau/**/*.md", recursive=True)
-    md_files += glob.glob(f"{DOCS_ROOT}/scripting/**/*.md", recursive=True)
-    md_files += glob.glob(f"{DOCS_ROOT}/characters/**/*.md", recursive=True)
+    # Gather Markdown files across directories
+    raw_md_files = glob.glob(f"{DOCS_ROOT}/luau/**/*.md", recursive=True)
+    raw_md_files += glob.glob(f"{DOCS_ROOT}/scripting/**/*.md", recursive=True)
+    raw_md_files += glob.glob(f"{DOCS_ROOT}/characters/**/*.md", recursive=True)
+    
+    # Enforce forward-slashes, eliminate overlaps via set(), and sort for deterministic IDs
+    md_files = sorted(list(set(fp.replace("\\", "/") for fp in raw_md_files)))
+    
     for fp in md_files:
         try:
             all_chunks.extend(process_markdown_doc(fp))
         except Exception as e:
             print(f"  skip (md parse error): {fp} -> {e}")
 
+    # Generate deterministic sequential IDs
     for idx, c in enumerate(all_chunks):
         safe_title = re.sub(r"[^A-Za-z0-9]+", "_", c["title"])[:50]
         c["id"] = f"{c['source_type']}:{safe_title}:{c['section']}:{idx}"

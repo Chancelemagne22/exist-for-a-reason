@@ -1,6 +1,6 @@
 # Secrets - never commit real credentials
 .env
-
+.env.local
 # Generated embeddings - large, regenerable via embed_chunks.py, not needed in repo
 rag/chunks_embedded.jsonl
 
