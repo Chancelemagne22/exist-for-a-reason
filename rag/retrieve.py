@@ -26,6 +26,16 @@ MODEL_NAME = "BAAI/bge-small-en-v1.5"
 TOP_K = 3  # lowered from 5 - see ask.py for rationale (vector-match noise ate context budget)
 KEYWORD_MATCH_LIMIT = 3  # chunks to pull per exact class/service name match
 
+# Lazy singleton so Streamlit reruns / CLI loops don't reload FastEmbed (1-3s + ~200MB) per query.
+# P0 fix for B6 — full pooling (psycopg_pool) deferred to P1 FastAPI layer.
+_EMBED_MODEL_CACHE = {}
+
+
+def get_embedding_model(model_name=MODEL_NAME):
+    if model_name not in _EMBED_MODEL_CACHE:
+        _EMBED_MODEL_CACHE[model_name] = TextEmbedding(model_name=model_name)
+    return _EMBED_MODEL_CACHE[model_name]
+
 # bge models expect this exact instruction prefix on QUERIES (not documents)
 # for best retrieval accuracy - this is part of how the model was trained.
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
@@ -189,27 +199,29 @@ def retrieve(question, top_k=TOP_K):
         raise SystemExit("SUPABASE_DB_URL not found in .env")
 
     print(f"Loading embedding model ({MODEL_NAME})...")
-    model = TextEmbedding(model_name=MODEL_NAME)
+    model = get_embedding_model(MODEL_NAME)
 
     print(f"Embedding question: {question!r}")
     query_vector = embed_query(model, question)
 
     conn = psycopg2.connect(db_url)
-    register_vector(conn)
-    cur = conn.cursor()
+    try:
+        register_vector(conn)
+        cur = conn.cursor()
+        try:
+            # Hybrid retrieval: guaranteed exact-name matches + vector similarity search,
+            # merged and deduplicated (exact matches take priority since distance=0).
+            kw_results = keyword_matches(cur, question)
+            vec_results = vector_matches(cur, query_vector, top_k)
 
-    # Hybrid retrieval: guaranteed exact-name matches + vector similarity search,
-    # merged and deduplicated (exact matches take priority since distance=0).
-    kw_results = keyword_matches(cur, question)
-    vec_results = vector_matches(cur, query_vector, top_k)
-
-    already_have = {r["title"] for r in kw_results} | {r["title"] for r in vec_results}
-    expansion_results = expand_related_classes(cur, kw_results, already_have)
-    already_have |= {r["title"] for r in expansion_results}
-    companion_results = expand_companion_classes(cur, kw_results, already_have)
-
-    cur.close()
-    conn.close()
+            already_have = {r["title"] for r in kw_results} | {r["title"] for r in vec_results}
+            expansion_results = expand_related_classes(cur, kw_results, already_have)
+            already_have |= {r["title"] for r in expansion_results}
+            companion_results = expand_companion_classes(cur, kw_results, already_have)
+        finally:
+            cur.close()
+    finally:
+        conn.close()
 
     seen = set()
     results = []

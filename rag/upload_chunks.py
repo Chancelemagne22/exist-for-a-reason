@@ -8,7 +8,7 @@ Requires:
   pip install psycopg2-binary python-dotenv pgvector
 
 Requires SUPABASE_DB_URL to be set in your .env file
-(see docs_supabase_setup.md for how to get this).
+(see docs/setup.md and README.md Installation & Deployment Step 5 for how to get this).
 """
 
 import json
@@ -30,7 +30,7 @@ def main():
     if not db_url:
         raise SystemExit(
             "SUPABASE_DB_URL not found. Add it to your .env file - "
-            "see docs_supabase_setup.md for how to get your connection string."
+            "see docs/setup.md for how to get your connection string."
         )
 
     with open(INPUT_FILE, encoding="utf-8") as f:

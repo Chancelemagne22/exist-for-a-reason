@@ -18,6 +18,7 @@ Requires in .env:
 import os
 import sys
 import re
+from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
@@ -25,14 +26,17 @@ from retrieve import retrieve, build_context_block
 
 load_dotenv()
 
-SYSTEM_PROMPT_FILE = "../system_prompt.md"  # adjust path if your layout differs
+# Resolve relative to this file so `python rag/ask.py` works from repo root and from rag/.
+SYSTEM_PROMPT_FILE = str(Path(__file__).resolve().parent.parent / "system_prompt.md")
 TOP_K = 3               # lowered from 5 - vector matches beyond ~3 were mostly
                         # noise (e.g. ServerScriptService, Luau globals) that
                         # ate context budget without adding relevant grounding
 MAX_TOKENS = 900
 SAFETY_MARGIN = 500          # increased from 300
 MIN_RESPONSE_TOKENS = 400    # increased from 200       # preferred/ceiling response length, used when budget allows
-MAX_MODEL_LEN = 8192   # must match --max-model-len in modal_app.py's vllm serve command
+# Must match --max-model-len in modal_app.py (default 16384) and MAX_MODEL_LEN in rag/app.py.
+# Reads env with fallback so .env is single source of truth.
+MAX_MODEL_LEN = int(os.environ.get("MAX_MODEL_LEN", "16384"))
 TEMPERATURE = 0.3
 REPETITION_PENALTY = 1.15
 

@@ -13,35 +13,33 @@ After deploy, Modal prints a URL like:
 
 That URL is OpenAI-API compatible: POST /v1/chat/completions
 """
-
+import os
 import modal
+from dotenv import load_dotenv
 
-MINUTES = 60  # seconds
+load_dotenv()
 
-# ---- Model config ----
-# Qwen2.5-Coder-7B-Instruct is a strong pick for Lua/Luau-family code.
-# AWQ quantized version keeps VRAM usage low so it fits comfortably on an A10G.
+MINUTES = 60
 MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct-AWQ"
-MODEL_REVISION = None  # pin a commit hash later if you want reproducibility
+MODEL_REVISION = None
+MAX_MODEL_LEN = os.environ.get("MAX_MODEL_LEN", "16384")  # read once at deploy time
 
 app = modal.App("efar")
 
-# ---- Container image ----
-# Pulls vLLM's official image and installs what's needed on top.
 vllm_image = (
     modal.Image.from_registry(
         "vllm/vllm-openai:v0.15.1",
-        add_python="3.11",  # Modal can't auto-detect Python in this image; specify it explicitly
+        add_python="3.11",
     )
-    .entrypoint([])  # override the base image's default entrypoint
+    .entrypoint([])
     .env(
         {
             "HF_HUB_CACHE": "/root/.cache/huggingface",
             "VLLM_SERVER_DEV_MODE": "1",
+            "MAX_MODEL_LEN": MAX_MODEL_LEN,  # passed into the container's env
         }
     )
 )
-
 # ---- Persistent volumes ----
 # Cache model weights across cold starts so you're not re-downloading
 # ~7-15GB from Hugging Face every time the container spins up.
@@ -51,7 +49,7 @@ vllm_cache_vol = modal.Volume.from_name("efar-vllm-cache", create_if_missing=Tru
 
 @app.function(
     image=vllm_image,
-    gpu="A10G",
+    gpu="A100-40GB",
     scaledown_window=180,       # sleep fast after idle - you said cold starts are fine
     timeout=10 * MINUTES,      # max time to wait for container start + first response
     min_containers=0,          # never keep it warm = never pay when you're not using it
@@ -64,6 +62,9 @@ vllm_cache_vol = modal.Volume.from_name("efar-vllm-cache", create_if_missing=Tru
 @modal.web_server(port=8000, startup_timeout=10 * MINUTES)
 def serve():
     import subprocess
+    import os
+
+    max_model_len = os.environ.get("MAX_MODEL_LEN", "16384")
 
     cmd = [
         "vllm", "serve",
@@ -71,10 +72,10 @@ def serve():
         "--served-model-name", "roblox-coder",
         "--host", "0.0.0.0",
         "--port", "8000",
-        "--max-model-len", "8192",       # plenty for chat + TDD context, keeps memory light
+        "--max-model-len", max_model_len,
         "--gpu-memory-utilization", "0.90",
         "--quantization", "awq",
         "--dtype", "auto",
-        "--enable-prefix-caching",       # speeds up repeated system-prompt reuse
+        "--enable-prefix-caching",
     ]
     subprocess.Popen(cmd)

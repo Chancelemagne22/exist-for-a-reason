@@ -1,16 +1,16 @@
-# Core
-modal
-streamlit
-python-dotenv
-requests
+# Core — pinned 2026-10-02 (see docs/audit.md). Use `pip install -r requirements.txt`.
+modal==1.5.1
+streamlit==1.58.0
+python-dotenv==1.2.2
+requests==2.34.2
 
 # RAG pipeline
-fastembed
-tqdm
-PyYAML
-psycopg2-binary
-pgvector          # provides pgvector.psycopg2 integration
+fastembed==0.8.0
+tqdm==4.68.3
+PyYAML==6.0.3
+psycopg2-binary==2.9.12
+pgvector==0.4.2          # provides pgvector.psycopg2 integration
 
 # Optional (not currently used in code — for a planned FastAPI layer)
 fastapi
-uvicorn
+uvicorn==0.49.0
