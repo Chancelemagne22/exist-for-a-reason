@@ -1,0 +1,6 @@
+In Roblox Studio, how do I make a kill-brick called DeathTile?
+
+When a player touches the part, they should die instantly.
+Give me the full Luau Script (not LocalScript), tell me exactly
+where to put it, and handle debounce so it doesn't fire multiple
+times per touch. Only kill real players, not NPCs or loose parts.

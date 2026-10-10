@@ -1,0 +1,71 @@
+Here is the exact setup and script to create a **DeathTile** that kills real players instantly with proper debounce handling.
+
+### 1. Setup in Roblox Studio
+
+1.  Open your **Workspace**.
+2.  Create a new **Part** and name it `DeathTile`.
+    *   *Optional:* Set its `Anchored` property to `true` so it doesn't float away.
+3.  Create a new **Script** in Roblox Studio.
+4.  **Drag and drop** this new Script directly onto the `DeathTile` part in the Explorer window.
+    *   *Note:* The Script should now appear as a child of `DeathTile` (Workspace > DeathTile > Script). This ensures `script.Parent` is the part.
+5.  Double-click the Script to open it in the Editor.
+
+### 2. The Luau Script
+
+Paste the following code into the Script:
+
+```lua
+-- DeathTile Kill Script
+-- Place this Script as a CHILD of the DeathTile Part (Workspace > DeathTile > Script)
+
+local Players = game:GetService("Players")
+local tile = script.Parent
+
+-- Configuration
+local COOLDOWN = 1 -- Seconds between kills per player
+
+-- Per-player debounce table
+local debounce = {}
+
+-- Function to handle the touch event
+local function onTouched(hit)
+	-- 1. Resolve the hit (limb part) to the Character Model
+	local character = hit:FindFirstAncestorOfClass("Model")
+	if not character then return end
+
+	-- 2. Filter for real players only (excludes NPCs, dummies, loose parts)
+	local player = Players:GetPlayerFromCharacter(character)
+	if not player then return end
+
+	-- 3. Check debounce to prevent multiple hits per touch
+	if debounce[player] then return end
+
+	-- 4. Verify the player has a valid Humanoid (safety check)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then return end
+
+	-- 5. Execute Kill
+	debounce[player] = true
+	humanoid.Health = 0
+
+	-- 6. Reset debounce after cooldown
+	task.delay(COOLDOWN, function()
+		debounce[player] = nil
+	end)
+end
+
+-- Connect the Touched event
+tile.Touched:Connect(onTouched)
+
+-- Cleanup: Remove debounce entry when a player leaves the game
+Players.PlayerRemoving:Connect(function(player)
+	debounce[player] = nil
+end)
+```
+
+### Why this works:
+*   **Placement:** By parenting the Script to the Part (`script.Parent` is the part), we can access the `Touched` event directly without needing a service.
+*   **Character Resolution:** `hit:FindFirstAncestorOfClass("Model")` correctly identifies the player's character model from the limb part that triggered the event.
+*   **Real Player Filter:** `Players:GetPlayerFromCharacter(character)` ensures only actual players are targeted. NPCs or static models will return `nil` and be ignored.
+*   **Debounce:** The `debounce` table ensures that even if the player touches the tile rapidly (or if physics causes multiple collisions), the kill logic only runs once per player per touch event.
+*   **Cleanup:** The `PlayerRemoving` connection ensures the debounce table stays clean when players leave the game, preventing memory leaks.

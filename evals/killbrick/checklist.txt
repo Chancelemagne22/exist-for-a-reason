@@ -1,0 +1,10 @@
+# Killbrick eval checklist — EFAR must go 0/6 (bad) → 6/6 (fixed)
+# Run: python rag/check_killbrick.py <file.luau>
+# Each line: <id> | <description> | <pass-regex> | <fail-regex>
+
+placement | Script is parented to the part (script.Parent is the tile), not ServerScriptService | script\.Parent | ServerScriptService
+touched | Connects BasePart.Touched exactly once | \.Touched:Connect\( | GetAttribute\("Touched"\)
+character | Resolves limb hit -> character Model (hit.Parent or FindFirstAncestorOfClass) | FindFirstAncestorOfClass\("Model"\)|hit\.Parent|otherPart\.Parent | —
+player_filter | Only real players via GetPlayerFromCharacter | GetPlayerFromCharacter | FindFirstChildWhichIsA\("HumanoidRootPart"\)
+kill | Instant kill via Health = 0 | \.Health\s*=\s*0 | —
+debounce | Per-player debounce (table keyed by player + task.delay), no global attribute gate | debounce\[player\] | GetAttribute\("Touched"\)|SetAttribute\("Touched"

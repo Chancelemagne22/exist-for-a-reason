@@ -24,3 +24,6 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 .vscode/
+# NOTE: evals/ (golden Q&A) and rag/custom-docs/ (pattern docs) are
+# intentionally TRACKED - fresh clones need them to reproduce grounding.
+# rag/chunks.jsonl stays ignored + untracked (regenerable 4MB artifact).

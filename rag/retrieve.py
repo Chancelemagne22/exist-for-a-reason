@@ -23,8 +23,91 @@ from fastembed import TextEmbedding
 from dotenv import load_dotenv
 
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
-TOP_K = 3  # lowered from 5 - see ask.py for rationale (vector-match noise ate context budget)
+TOP_K = 3  # default for single-concept queries; tutorial queries auto-bump (see TUTORIAL_TOP_K)
+TUTORIAL_TOP_K = 8  # multi-concept builds (touch + kill + debounce + placement) need 2-3 API families
 KEYWORD_MATCH_LIMIT = 3  # chunks to pull per exact class/service name match
+
+# Slang -> Roblox API terms. Creator-docs never says "deathtile"; it says
+# BasePart.Touched + Humanoid.Health + Players:GetPlayerFromCharacter.
+# Without this map a lowercase slang query yields zero keyword hits and a
+# pure-vector TOP_K=3 miss (see evals/killbrick/). Keys are lowercase
+# substrings matched against question.lower().
+SLANG_TO_API_TERMS = {
+    "deathtile": ["BasePart", "Humanoid", "Players", "Model"],
+    "death tile": ["BasePart", "Humanoid", "Players", "Model"],
+    "death-tile": ["BasePart", "Humanoid", "Players", "Model"],
+    "kill brick": ["BasePart", "Humanoid", "Players", "Model"],
+    "killbrick": ["BasePart", "Humanoid", "Players", "Model"],
+    "kill brick": ["BasePart", "Humanoid", "Players", "Model"],
+    "lava brick": ["BasePart", "Humanoid", "Players"],
+    "lava tile": ["BasePart", "Humanoid", "Players"],
+    "damage brick": ["BasePart", "Humanoid", "Players"],
+    "obby kill": ["BasePart", "Humanoid", "Players"],
+    "touch kill": ["BasePart", "Humanoid", "Players"],
+    "touch damage": ["BasePart", "Humanoid", "Players"],
+}
+
+# Extra API sentence appended to the embedded query so bge-small (384d,
+# 512tok, weak on slang synonyms) lands near Touched/Humanoid/Players docs.
+QUERY_EXPANSION_SUFFIX = (
+    " Roblox BasePart Touched event Humanoid Health "
+    "Players GetPlayerFromCharacter server Script debounce"
+)
+
+# Kill-brick task router patterns (lowercase substrings). Used by ask.py /
+# app.py to swap Pathfinding CRITICAL LAWS for kill-brick laws, and by
+# is_tutorial_query() to bump TOP_K without a re-embed.
+KILLBRICK_PATTERNS = (
+    "deathtile", "death tile", "death-tile", "kill brick", "killbrick",
+    "kill-brick", "lava brick", "damage brick", "touch kill", "obby kill",
+)
+
+
+def is_killbrick_query(question: str) -> bool:
+    """True if the question is a kill-brick/deathtile build (slang-tolerant)."""
+    q = (question or "").lower()
+    return any(p in q for p in KILLBRICK_PATTERNS)
+
+
+def get_slang_api_terms(question: str) -> list:
+    """Return deduped Roblox API terms implied by slang in the question."""
+    q = (question or "").lower()
+    terms: list = []
+    for slang, api_terms in SLANG_TO_API_TERMS.items():
+        if slang in q:
+            for t in api_terms:
+                if t not in terms:
+                    terms.append(t)
+    return terms
+
+
+def is_tutorial_query(question: str) -> bool:
+    """
+    Multi-concept build (e.g. touch + kill + debounce + placement) needs
+    more than TOP_K=3: it spans BasePart + Humanoid + Players docs.
+    Triggers on slang match OR 2+ tutorial signals.
+    """
+    if get_slang_api_terms(question):
+        return True
+    q = (question or "").lower()
+    signals = ("touch", "kill", "die", "debounce", "where to put",
+               "how do i make", "script", "lava", "debounce")
+    return sum(1 for s in signals if s in q) >= 2
+
+
+def effective_top_k(question: str, requested: int) -> int:
+    """Auto-bump TOP_K for tutorial queries unless caller overrode it."""
+    if requested == TOP_K and is_tutorial_query(question):
+        return TUTORIAL_TOP_K
+    return requested
+
+
+def expand_query_for_embedding(question: str) -> str:
+    """Append API terms so the embed lands near Touched/Humanoid/Players docs."""
+    terms = get_slang_api_terms(question)
+    if not terms:
+        return question
+    return question + QUERY_EXPANSION_SUFFIX
 
 # Lazy singleton so Streamlit reruns / CLI loops don't reload FastEmbed (1-3s + ~200MB) per query.
 # P0 fix for B6 — full pooling (psycopg_pool) deferred to P1 FastAPI layer.
@@ -64,13 +147,18 @@ load_dotenv()
 
 
 def embed_query(model, question):
-    prefixed = QUERY_PREFIX + question
+    prefixed = QUERY_PREFIX + expand_query_for_embedding(question)
     return list(model.embed([prefixed]))[0].tolist()
 
 
 def keyword_matches(cur, question):
-    """Find chunks whose title exactly matches a CamelCase term mentioned in the question."""
+    """Find chunks whose title exactly matches a CamelCase term mentioned in the question.
+
+    Also includes slang-implied API terms (e.g. "deathtile" -> BasePart,
+    Humanoid, Players) so lowercase slang queries still get guaranteed hits.
+    """
     candidates = set(CAMELCASE_PATTERN.findall(question))
+    candidates.update(get_slang_api_terms(question))
     if not candidates:
         return []
 
@@ -103,6 +191,13 @@ def keyword_matches(cur, question):
 COMPANION_TERMS = {
     "PathfindingService": ["Humanoid"],
     "Path": ["Humanoid"],
+    # Kill-brick triad: Touched entry point is useless without the follow-up
+    # APIs (what is the character? is it a real player? how to kill it?).
+    # Return-type expansion can't discover these pairings on its own.
+    "BasePart": ["Humanoid", "Players", "Model"],
+    "Humanoid": ["Players", "BasePart"],
+    "Players": ["Humanoid", "BasePart", "Model"],
+    "Model": ["Humanoid", "Players"],
 }
 
 
@@ -198,13 +293,39 @@ def retrieve(question, top_k=TOP_K):
     if not db_url:
         raise SystemExit("SUPABASE_DB_URL not found in .env")
 
-    print(f"Loading embedding model ({MODEL_NAME})...")
+    top_k = effective_top_k(question, top_k)
+    slang_terms = get_slang_api_terms(question)
+    if slang_terms:
+        print(f"Slang expansion: {slang_terms} (TOP_K={top_k})", flush=True)
+
+    print(f"Loading embedding model ({MODEL_NAME})...", flush=True)
     model = get_embedding_model(MODEL_NAME)
 
-    print(f"Embedding question: {question!r}")
+    print(f"Embedding question: {question!r}", flush=True)
     query_vector = embed_query(model, question)
 
-    conn = psycopg2.connect(db_url)
+    print("Connecting to Supabase (10s timeout)...", flush=True)
+    try:
+        conn = psycopg2.connect(db_url, connect_timeout=10, options="-c statement_timeout=30000")
+    except Exception as e:
+        msg = str(e)
+        # Supabase pooler vs direct mix-up is the #1 cause of ENOTFOUND/tenant errors on Windows.
+        # Pooler host (aws-*.pooler.supabase.com) MUST use port 6543; direct db host (db.*.supabase.co) uses 5432.
+        if "pooler.supabase.com" in (db_url or "") and ":5432" in db_url:
+            raise SystemExit(
+                "Supabase connection failed: you are using a pooler host with port 5432. "
+                "Change :5432 to :6543 in SUPABASE_DB_URL, e.g. "
+                "postgresql://postgres.<ref>@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres\n"
+                f"Original error: {msg}"
+            )
+        if "tenant/user" in msg and "not found" in msg:
+            raise SystemExit(
+                "Supabase connection failed: tenant/user not found. Check SUPABASE_DB_URL format:\n"
+                "  Pooler: postgresql://postgres.<project-ref>@aws-1-...pooler.supabase.com:6543/postgres\n"
+                "  Direct: postgresql://postgres@db.<project-ref>.supabase.co:5432/postgres\n"
+                f"Original error: {msg}"
+            )
+        raise
     try:
         register_vector(conn)
         cur = conn.cursor()

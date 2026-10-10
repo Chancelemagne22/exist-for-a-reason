@@ -1,0 +1,1 @@
+I tried it and got "LowerLeg is a non-player" in Output when I touch it. What's wrong and how do I fix it?

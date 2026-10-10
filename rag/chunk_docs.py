@@ -101,7 +101,10 @@ def chunk_members(class_name, members, kind, prefix_sep):
 
 
 def process_yaml_doc(filepath):
-    with open(filepath) as f:
+    # encoding="utf-8" is required on Windows: the default charmap codec
+    # chokes on non-ASCII bytes (e.g. BasePart.yaml byte 0x81) and silently
+    # drops the whole class — BasePart.Touched grounding depends on this.
+    with open(filepath, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     if not isinstance(data, dict) or "name" not in data:
         return []
@@ -194,6 +197,9 @@ def main():
     raw_md_files = glob.glob(f"{DOCS_ROOT}/luau/**/*.md", recursive=True)
     raw_md_files += glob.glob(f"{DOCS_ROOT}/scripting/**/*.md", recursive=True)
     raw_md_files += glob.glob(f"{DOCS_ROOT}/characters/**/*.md", recursive=True)
+    # Custom game docs (README promise): rag/custom-docs/**/*.md — e.g. your
+    # own kill-brick pattern page. Optional dir; missing = zero files.
+    raw_md_files += glob.glob("custom-docs/**/*.md", recursive=True)
     
     # Enforce forward-slashes, eliminate overlaps via set(), and sort for deterministic IDs
     md_files = sorted(list(set(fp.replace("\\", "/") for fp in raw_md_files)))

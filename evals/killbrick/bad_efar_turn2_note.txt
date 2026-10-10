@@ -1,0 +1,7 @@
+-- BAD (EFAR Turn 2, 2026-10-10) — HALLUCINATED STUDIO UI
+-- Claimed: select the Part, use the Properties window "Script field" to
+-- pick the ServerScriptService script. No such field exists in Studio.
+-- Parts have no Script property; scripts connect via parenting
+-- (child of the Part in Explorer), not via a dropdown.
+-- Kept here as a prompt-grounding failure example: model invented
+-- editor UI instead of saying it didn't know.
