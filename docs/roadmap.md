@@ -12,6 +12,48 @@
 - [ ] Decide A100→A10G revert or bench justification; set `MAX_MODEL_LEN=16384` everywhere (`ask.py:35`, README:676)
 - [ ] Delete dead `docs_supabase_setup.md` ref, merge `docs/setup.md` vs README divergence
 
+## Migration — DIY `modal_app.py` → Modal Dedicated Endpoint (free $30/mo, experimental)
+
+> Decision 2026-10-03: migrate. Project is purely experimental for Roblox AI. Must stay inside $30/mo free credits.
+> Key billing rule: `Shared Endpoints` (per-token) CANNOT use free credits (out-of-pocket only). `Dedicated Endpoints` (per-second compute, scale-to-zero) DO use credits. → Use Dedicated only.
+
+### Cost baseline (Sept 2026 pricing)
+- `A100-40GB $2.10/hr`, `A10G $1.10/hr`, `L4 $0.799/hr` (cheapest 24GB), `H100 $3.95/hr` — avoid.
+- 20 queries/day x 30s active: A100 ~$10.50/mo, A10G ~$5.50/mo, L4 ~$4.00/mo. All fit $30 if scale-to-zero holds.
+- Avoid screenshot traps for free tier: `Kimi K3 (2.8T)`, `Qwen3.6-35B-A3B` need large GPUs — burns $30 in days.
+
+### Target
+- `Dedicated Endpoint`, `us-west` default (no `--colocate-compute` multiplier), scale-to-zero, proxy-token auth.
+- Model: `Qwen2.5-Coder-7B-Instruct-AWQ` if in catalog (safest, same quality), fallback `Qwen3.5-4B` or `Gemma 4 E4B IT` compact. No 35B/Kimi on free tier.
+- Keep RAG/UI untouched (`rag/retrieve.py`, validators, `TOP_K=3`); only inference URL + auth + model name change.
+
+### M0 — Baseline (30 min, no changes)
+- [ ] Record dashboard Usage $/day, `modal volume list` (`efar-hf-cache` size), cold-start p50 (15-40s now)
+- [ ] Confirm workspace spend limit = $30, Starter plan credits active
+
+### M1 — Create Dedicated Endpoint (30 min, dashboard + CLI)
+- [ ] Dashboard Endpoints tab → Browse catalog → confirm 7B-AWQ or 4B availability + compute rate shown
+- [ ] `modal endpoint create --name efar-coder --model Qwen/Qwen2.5-Coder-7B-Instruct-AWQ` (fallback `--model Qwen/Qwen3.5-4B`)
+- [ ] `modal workspace proxy-tokens create` → save `wk-<id>.ws-<secret>` to password manager (never commit)
+- [ ] `curl` smoke test with `Authorization: Bearer wk-...ws-...` to `/v1/chat/completions`
+
+### M2 — Code swap (1-2 hrs, reversible)
+- [ ] `.env.example` + `.env`: add `MODAL_ENDPOINT_URL=<dedicated-url>`, `MODAL_PROXY_TOKEN=wk-...`, `MODAL_MODEL=<catalog-name>`
+- [ ] `rag/app.py:15,211`: read new env, add `Authorization` header, use `MODAL_MODEL` instead of hardcoded `roblox-coder`
+- [ ] `rag/ask.py:216-257`: same header + model change, keep `MAX_MODEL_LEN=16384`, `SAFETY_MARGIN=500`
+- [ ] Keep `modal_app.py` as rollback for 1 week (do not delete volumes yet)
+
+### M3 — Verify + guardrails (1 day soak)
+- [ ] 3-query check: cold + warm + follow-up → TTFT, citations, validation warnings OK
+- [ ] 429/expiry handling: proxy-token 401 shows friendly `st.error`, no crash
+- [ ] Cost check: dashboard <$0.50/day, `modal endpoint list` shows idle scale-to-zero
+- [ ] Guardrails: no `min_containers=1`, no pre-warm loop, keep `RESERVED_FOR_OUTPUT=2048`, dynamic `max_tokens`
+
+### M4 — Decommission DIY (after 1 week green)
+- [ ] `modal endpoint stop` old test deploys if any; keep `efar-hf-cache` volume 1 week, then delete
+- [ ] Append Endpoint ID + model + $/day to `docs/audit.md` + check P2 sign-off gate
+- [ ] Rollback: revert `.env` to old `--efar-serve.modal.run` URL + `modal deploy modal_app.py` — RAG unchanged
+
 ## P1 — Quality foundation (3 days – 2 weeks)
 
 - [ ] Dedupe `validation/prompting` into `efar_core`, add `pytest` + CI (`ruff/mypy/audit`), target 70% cov

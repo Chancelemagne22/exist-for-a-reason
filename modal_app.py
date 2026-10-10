@@ -15,9 +15,16 @@ That URL is OpenAI-API compatible: POST /v1/chat/completions
 """
 import os
 import modal
-from dotenv import load_dotenv
 
-load_dotenv()
+# dotenv is a local-only convenience for reading .env at deploy time.
+# The vLLM container image does NOT include python-dotenv, and this module
+# is imported inside the container too — so this must never hard-fail there.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
 
 MINUTES = 60
 MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct-AWQ"

@@ -10,6 +10,14 @@
 [![Modal](https://img.shields.io/badge/Powered%20by-Modal-blueviolet)](https://modal.com)
 [![Supabase](https://img.shields.io/badge/Backed%20by-Supabase-3ECF8E)](https://supabase.com)
 
+> **Portfolio TL;DR** — Solo-built RAG coding assistant for Roblox Luau: 3,933 doc chunks
+> (FastEmbed + Supabase pgvector, hybrid keyword + vector retrieval) grounding
+> `Qwen/Qwen3.5-4B` on a Modal Dedicated scale-to-zero endpoint, with a Streamlit
+> chat UI (live streaming, per-block copy buttons, Material icons). Shipped fixes:
+> cold-start 503 auto-retry, reasoning-token budget fix (259 → 0 thinking tokens on
+> trivial prompts), and DB connects that fail fast instead of hanging.
+> Copy-paste CV bullets at the bottom ([jump](#cv-bullets)).
+
 ---
 
 ## Table of Contents
@@ -35,12 +43,12 @@
 
 EFAR is a **self-hosted AI assistant** specifically designed for **Roblox Luau development**. Unlike generic coding assistants, EFAR:
 
-- 🎯 **Knows Roblox** — trained on Qwen2.5-Coder with Roblox API documentation embedded via RAG
-- 💰 **Pays only when used** — runs on Modal serverless GPUs, scales to $0 when idle (180s inactivity)
-- 🔍 **Semantically searches your docs** — embeds Roblox creator-docs in Supabase vector database for retrieval
-- ✅ **Validates Roblox code** — post-generation linting catches hallucinations (wrong enum values, deprecated methods, etc.)
-- 🚀 **Fast after cold start** — first request ~15-40s, then cached for snappy responses
-- 🔒 **Completely private** — runs on your own infrastructure, no telemetry
+- **Knows Roblox** — Qwen3.5-4B grounded in Roblox API documentation via RAG
+- **Pays only when used** — runs on a Modal Dedicated endpoint that scales to $0 compute when idle
+- **Semantically searches your docs** — embeds Roblox creator-docs in Supabase vector database for retrieval
+- **Validates Roblox code** — post-generation linting catches hallucinations (wrong enum values, deprecated methods, etc.)
+- **Fast after cold start** — first request ~15-60s, then cached for snappy responses
+- **Completely private** — runs on your own infrastructure, no telemetry
 
 Perfect for indie Roblox developers, game studios, and anyone building games without enterprise AI subscription budgets.
 
@@ -59,26 +67,28 @@ EFAR catches common mistakes:
 - **Enum validation**: checks that enum values exist in the Roblox API
 
 ### 3. **Cost-Controlled GPU Inference**
-Runs **Qwen2.5-Coder-7B-Instruct (AWQ quantized)** on Modal A10G GPUs:
-- ~5GB model (quantized to fit A10G VRAM)
-- vLLM serving (OpenAI-compatible `/v1/chat/completions` endpoint)
-- Idle scaledown (180s) → $0 when not in use
+Runs **`Qwen/Qwen3.5-4B`** on a Modal **Dedicated** endpoint (`efar-coder`, scale-to-zero):
+- OpenAI-compatible `POST /v1/chat/completions` with proxy-token Bearer auth
+- Reasoning disabled (`chat_template_kwargs: {enable_thinking: False}`) so thinking
+  tokens can't eat the completion budget (measured 259 → 0 on trivial prompts)
+- Cold-start 503 auto-retry (15/30/60s) with affinity routing; idle → $0 compute
 
 ### 4. **Prefix Caching**
 Your system prompt (game context) is cached on the GPU, so repeated queries reuse it without recomputation—faster responses, lower costs.
 
 ### 5. **Multi-Source RAG Pipeline**
-- Chunks Roblox creator-docs from GitHub sparse checkout
-- Embeds with FastEmbed (BAAI/bge-small-en-v1.5)
+- Chunks Roblox creator-docs into 3,933 chunks (1,302 titles: API reference + guides)
+- Embeds with FastEmbed (BAAI/bge-small-en-v1.5, 384-dim)
 - Stores in Supabase + pgvector for semantic search
+- Hybrid retrieval: CamelCase keyword match + vector top-K + return-type/companion expansion
 - Optional: add your own game design docs
 
 ### 6. **Streamlit Chat Interface**
 Interactive UI with:
 - Pre-warm button (trigger cold start while you set up)
-- Message history
-- Code syntax highlighting
-- Real-time streaming responses
+- Message history with per-code-block copy buttons (`st.code`, one copy target per Luau fence)
+- Material icons throughout (zero emoji)
+- Real-time streaming responses with cold-start retry status
 
 ---
 
@@ -106,8 +116,8 @@ USER QUERY
 │  System Prompt (cached):  Your game context from system_prompt.md
 │  Context Window:          Top-K Roblox docs from Supabase      │
 │  User Query:              Your question                         │
-│  Model:                   Qwen2.5-Coder-7B-AWQ                 │
-│  Serving:                 OpenAI-compatible endpoint            │
+│  Model:                   Qwen/Qwen3.5-4B (thinking disabled)  │
+│  Serving:                 Modal Dedicated, OpenAI-compatible    │
 └─────────────────────────────────────────────────────────────────┘
     ↓
 ┌─────────────────────────────────────────────────────────────────┐
@@ -152,14 +162,17 @@ Response + validation
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| **LLM Model** | Qwen2.5-Coder-7B-Instruct-AWQ | 7B-parameter code model, quantized for A10G |
-| **Inference Runtime** | vLLM | LLM serving with prefix caching, OpenAI-compatible API |
-| **GPU Hosting** | Modal | Serverless GPU compute (A10G, pay-per-use) |
+| **LLM Model** | Qwen/Qwen3.5-4B (thinking disabled) | 4B-parameter chat model via Modal catalog |
+| **Inference Runtime** | Modal Dedicated endpoint (`efar-coder`) | Managed serving, OpenAI-compatible API, scale-to-zero |
+| **GPU Hosting** | Modal | Serverless GPU compute (per-second billing, $0 when idle) |
 | **Vector Database** | Supabase PostgreSQL + pgvector | Embedding storage & semantic search |
-| **Embeddings Model** | FastEmbed (BAAI/bge-small-en-v1.5) | Document chunking & query embedding |
-| **Frontend** | Streamlit | Interactive chat UI (Next.js planned) |
+| **Embeddings Model** | FastEmbed (BAAI/bge-small-en-v1.5) | 384-dim document + query embeddings |
+| **Frontend** | Streamlit 1.58 | Chat UI: streaming, per-block copy, Material icons |
 | **Language** | Python 3.10+ | All backend logic |
-| **Docs Source** | Roblox creator-docs (GitHub) | Official Roblox API reference & guides |
+| **Docs Source** | Roblox creator-docs (GitHub) | 3,933 chunks across 1,302 titles |
+
+Legacy DIY path (`modal_app.py`: Qwen2.5-Coder-7B-AWQ on vLLM, `roblox-coder`) is kept
+only as a rollback; the live setup is Dedicated above.
 
 ---
 
@@ -262,23 +275,22 @@ git clone https://github.com/Roblox/creator-docs.git rag/creator-docs
 
 ### Step 6: Create Environment Configuration
 
-Create `.env` in the project root:
+Create `.env` in the project root (see `.env.example` — copy, don't guess the endpoint URL):
 
 ```bash
 # .env
-MODAL_ENDPOINT_URL=https://your-workspace--efar-serve.modal.run
-SUPABASE_DB_URL=postgresql://postgres:your-password@your-project.supabase.co:5432/postgres
-NEXT_PUBLIC_API_URL=http://localhost:8501  # Streamlit default
+# Copy MODAL_ENDPOINT_URL exactly: dashboard Endpoints tab → efar-coder → copy icon
+# (bare host; code appends /v1/chat/completions). The old --efar-serve URL pattern 404s.
+MODAL_ENDPOINT_URL=https://<workspace>--ep-efar-coder-server.us-west.modal.direct
+MODAL_PROXY_TOKEN=wk-<id>.ws-<secret>
+# Copy "model" exactly from the endpoint Quickstart example (currently Qwen/Qwen3.5-4B)
+MODAL_MODEL=Qwen/Qwen3.5-4B
+MAX_MODEL_LEN=16384
+# Pooler host MUST use :6543 (not :5432), or Supabase returns "tenant/user not found"
+SUPABASE_DB_URL=postgresql://postgres.<ref>@aws-1-<region>.pooler.supabase.com:6543/postgres
 ```
 
-Do NOT commit `.env` to version control. Use `.env.example` as a template:
-
-```bash
-# .env.example
-MODAL_ENDPOINT_URL=https://your-workspace--efar-serve.modal.run
-SUPABASE_DB_URL=postgresql://postgres:YOUR_PASSWORD@YOUR_PROJECT.supabase.co:5432/postgres
-NEXT_PUBLIC_API_URL=http://localhost:8501
-```
+Do NOT commit `.env` to version control.
 
 ### Step 7: Populate Roblox Docs in Supabase
 
@@ -289,12 +301,12 @@ cd rag
 
 # Step 1: Chunk the Markdown docs
 python chunk_docs.py
-# Output: chunks.jsonl (~10k-50k chunks depending on docs)
+# Output: chunks.jsonl (current corpus: 3,933 chunks / 1,302 titles)
 
 # Step 2: Embed chunks
 python embed_chunks.py
 # Output: chunks_embedded.jsonl
-# ⏱️ This may take 5-15 minutes depending on number of chunks
+# This may take 5-15 minutes depending on number of chunks
 
 # Step 3: Upload to Supabase
 python upload_chunks.py
@@ -303,48 +315,45 @@ python upload_chunks.py
 cd ..
 ```
 
-### Step 8: Deploy the Backend to Modal
+### Step 8: Create the Backend on Modal (Dedicated endpoint)
 
-Deploy the Qwen model to Modal:
+Live setup uses a Modal **Dedicated** endpoint, not `modal deploy`:
 
 ```bash
-modal deploy modal_app.py
+# From the CLI (or dashboard Endpoints tab → Browse catalog → Create)
+modal endpoint create --name efar-coder --model Qwen/Qwen3.5-4B
+modal workspace proxy-tokens create   # save wk-<id>.ws-<secret> to .env, never commit
 ```
 
-**What happens:**
-1. Modal builds a container with Python, vLLM, and all dependencies
-2. Downloads Qwen2.5-Coder-7B-Instruct-AWQ model (~5GB) from Hugging Face
-3. Deploys to Modal infrastructure
-4. Caches the model in a Modal Volume (no re-download on future deploys)
+When it turns `live`, copy the endpoint URL **exactly** (dashboard copy icon) into `.env`
+as `MODAL_ENDPOINT_URL`, and copy the `"model"` value from the Quickstart request
+example into `MODAL_MODEL` (currently `Qwen/Qwen3.5-4B`).
 
-**First deploy takes ~5-10 minutes.** Subsequent deploys are much faster.
-
-When complete, Modal prints:
-```
-https://<your-workspace>--efar-serve.modal.run
-```
-
-**Copy this URL** and add it to your `.env`:
-```
-MODAL_ENDPOINT_URL=https://<your-workspace>--efar-serve.modal.run
-```
+Rollback only: the legacy DIY path (`modal deploy modal_app.py`, `roblox-coder`,
+`--efar-serve.modal.run`) is kept in the repo but not used live.
 
 ### Step 9: Test the Backend Endpoint
 
 ```bash
-curl https://<your-workspace>--efar-serve.modal.run/v1/chat/completions \
+curl https://<workspace>--ep-efar-coder-server.us-west.modal.direct/v1/chat/completions \
+  -H "Authorization: Bearer $MODAL_PROXY_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "roblox-coder",
+    "model": "Qwen/Qwen3.5-4B",
     "messages": [
       {"role": "user", "content": "How do I create an NPC using PathfindingService in Roblox Luau?"}
-    ]
+    ],
+    "max_tokens": 512,
+    "chat_template_kwargs": {"enable_thinking": false}
   }'
 ```
 
 Expected response: JSON with a Luau code example.
 
-> ⏱️ **First request will take 15-40 seconds** (cold start—Modal spinning up GPU). This is expected and by design. Subsequent requests within the idle window are fast. After 180 seconds of inactivity, the container scales down to $0.
+> **First request will take 15-60 seconds** (cold start — Modal spinning up GPU from
+> scale-to-zero). This is expected and by design; the CLI/Streamlit retry
+> automatically on 503s while the container starts. Warm requests are fast.
+> After ~180 seconds of inactivity the endpoint scales to $0 compute.
 
 ### Step 10: Customize System Prompt for Your Game
 
@@ -383,25 +392,36 @@ You are a coding assistant for [Your Game Name], a Roblox [genre] game.
 - DO NOT assume `Instance:FindFirstChild()` returns a table; always nil-check
 ```
 
-Then **redeploy** to pick up the new context:
+Then restart Streamlit to pick up the new context (no redeploy needed — the prompt
+loads at runtime):
 
 ```bash
-modal deploy modal_app.py
+streamlit run rag/app.py
 ```
 
-### Step 11: Run the Streamlit UI
+### Step 11: Run the Streamlit UI (from repo root, so `.env` loads)
 
 ```bash
 streamlit run rag/app.py
 ```
 
 Streamlit opens at `http://localhost:8501`. You'll see:
-- Chat interface
+- Chat interface with live streaming
 - Pre-warm button (optional, triggers cold start in background)
-- Message history
-- Response streaming
+- Message history with per-code-block copy buttons
+- Validation warnings + auto-correction details under each answer
 
-You're ready to go! 🎉
+You're ready to go!
+
+### Step 12 (optional): Try the CLI
+
+```bash
+# Modal-only smoke test (skips retrieval — fastest way to verify the endpoint)
+python -u rag/ask.py "Write a Luau print hello" --no-retrieval --once --stream
+
+# Full RAG pipeline (retrieval + grounded answer + validation)
+python -u rag/ask.py "Write a Luau print hello" --once --stream
+```
 
 ---
 
@@ -433,18 +453,18 @@ You're ready to go! 🎉
 
 ### Pre-warming (Optional)
 
-Click the **Pre-warm Modal backend** button to trigger a cold start while you're setting up. This avoids the first 15-40 second delay on your first real query.
+Click the **Pre-warm Modal backend** button to trigger a cold start while you're setting up. This avoids the first 15-60 second delay on your first real query. Both CLI and UI retry automatically if the container is still starting.
 
 ### Code Validation
 
 EFAR automatically checks generated code for:
-- ✅ Correct casing (`.Magnitude` not `.magnitude`)
-- ✅ Modern API usage (`task.wait()` not `wait()`)
-- ✅ Enum validity (e.g., `Enum.HumanoidStateType.Running` exists)
-- ✅ Known Roblox services exist
-- ⚠️ Deprecation warnings (e.g., `Humanoid.Health` is deprecated on R15)
+- Correct casing (`.Magnitude` not `.magnitude`)
+- Modern API usage (`task.wait()` not `wait()`)
+- Enum validity (e.g., `Enum.HumanoidStateType.Running` exists)
+- Known Roblox services exist
+- Deprecation warnings
 
-Invalid code is highlighted with explanations.
+Invalid code is highlighted with explanations. Each Luau block renders with its own copy button.
 
 ---
 
@@ -485,13 +505,13 @@ exist-for-a-reason/
 
 | File | Purpose |
 |------|---------|
-| **modal_app.py** | Configures Qwen + vLLM on Modal. Defines GPU (A10G), model params, volumes, and the `/v1/chat/completions` endpoint. Deploy this to Modal with `modal deploy modal_app.py`. |
-| **rag/app.py** | Streamlit chat UI. Handles message history, pre-warming, streaming responses, and code validation. Run with `streamlit run rag/app.py`. |
-| **rag/chunk_docs.py** | Parses Markdown + YAML from Roblox creator-docs. Splits into semantic chunks (~500-1000 tokens each). Outputs `chunks.jsonl`. |
-| **rag/embed_chunks.py** | Uses FastEmbed to create 384-dim embeddings for each chunk. Outputs `chunks_embedded.jsonl`. |
+| **modal_app.py** | Legacy DIY backend (Qwen + vLLM on Modal). Kept for rollback only; live setup is the Dedicated `efar-coder` endpoint. |
+| **rag/app.py** | Streamlit chat UI. Message history, pre-warming, live streaming with 503 retry, per-block copy buttons, Material icons, code validation. Run with `streamlit run rag/app.py` from repo root. |
+| **rag/chunk_docs.py** | Parses Markdown + YAML from Roblox creator-docs. Splits into semantic chunks. Outputs `chunks.jsonl` (3,933 chunks / 1,302 titles). |
+| **rag/embed_chunks.py** | Uses FastEmbed (`BAAI/bge-small-en-v1.5`) to create 384-dim embeddings. Outputs `chunks_embedded.jsonl`. |
 | **rag/upload_chunks.py** | Bulk-inserts embeddings + metadata into Supabase `doc_chunks` table. |
-| **rag/retrieve.py** | Core retrieval logic: embed query, search Supabase, keyword-match class names, return top-K results. |
-| **rag/ask.py** | CLI tool to test the full pipeline: question → retrieval → inference → answer (useful for debugging). |
+| **rag/retrieve.py** | Core retrieval logic: embed query, search Supabase (10s connect timeout), CamelCase keyword-match, return-type/companion expansion, top-K results. |
+| **rag/ask.py** | CLI for the full pipeline: question → retrieval → inference → answer. Flags: `--no-retrieval` (endpoint smoke test), `--stream` (live tokens), `--once` (no follow-up loop). |
 | **system_prompt.md** | Game context injected into the system prompt. Customize this with your game's architecture, naming conventions, and systems. |
 
 ---
@@ -506,9 +526,9 @@ Edit `system_prompt.md` with your game's:
 - **Known patterns** — Specific RemoteEvent patterns, DataStore design
 - **Things to avoid** — Anti-patterns, deprecated APIs you've opted out of
 
-After editing, **redeploy**:
+After editing, restart Streamlit/CLI (no redeploy — the prompt loads at runtime):
 ```bash
-modal deploy modal_app.py
+streamlit run rag/app.py
 ```
 
 ### 2. Add Custom Documentation
@@ -528,17 +548,15 @@ To include your own game design docs in the RAG pipeline:
 
 ### 3. Adjust Model Parameters
 
-Edit `modal_app.py` to modify:
-- **GPU type** — Change from `A10G` to `A100` for larger models (higher cost)
-- **Max model length** — Increase from `8192` to allow longer contexts (uses more VRAM)
-- **GPU memory utilization** — Tune from `90%` for stability vs. cost
-- **Scaledown timeout** — Change from `180s` to scale down faster/slower
-- **Quantization** — Use full-precision model instead of AWQ (requires more VRAM/GPU)
+Live model settings live in the dashboard endpoint (`efar-coder`) plus `.env`:
+- **Model** — Copy `"model"` from the endpoint Quickstart example into `MODAL_MODEL`
+- **Max model length** — `MAX_MODEL_LEN=16384` in `.env` (keep in sync across CLI/UI trimmers)
+- **Output budget** — CLI `MAX_TOKENS=2048` in `rag/ask.py`, UI `RESERVED_FOR_OUTPUT=2048` in `rag/app.py`
+- **Thinking** — Keep `chat_template_kwargs: {enable_thinking: False}` unless you raise
+  budgets: with thinking on, ~900–2,000 reasoning tokens can starve the answer
 
-Then redeploy:
-```bash
-modal deploy modal_app.py
-```
+DIY rollback only: `modal_app.py` holds the legacy GPU/model/volume settings
+(`modal deploy modal_app.py`).
 
 ### 4. Modify Embedding Model
 
@@ -566,11 +584,13 @@ python upload_chunks.py
 
 ## Troubleshooting
 
-### Cold Start is Too Long (15-40s)
+### Cold Start is Too Long (15-60s) / 503 errors
 
-**Expected behavior.** This is by design: the first request spins up a GPU container from scratch. This is the trade-off for paying $0 when idle. Subsequent requests within the 180s idle window are fast.
+**Expected behavior.** This is by design: the first request spins up a GPU container
+from scale-to-zero, and the proxy may return 503 while it starts. This is the
+trade-off for paying $0 compute when idle. Subsequent warm requests are fast.
 
-**Solution:** Click the "Pre-warm Modal backend" button before you start chatting, so the cold start happens in the background.
+**Solution:** Click the "Pre-warm Modal backend" button before you start chatting, so the cold start happens in the background. The CLI (`ask.py`) and UI both retry 503s automatically (15/30/60s) with status updates.
 
 ### "ModuleNotFoundError: No module named 'modal'"
 
@@ -586,17 +606,16 @@ Then authenticate in the browser window that opens.
 Streamlit isn't running. Start it:
 
 ```bash
-cd rag
-streamlit run app.py
+streamlit run rag/app.py
 ```
 
-Then open `http://localhost:8501`.
+Then open `http://localhost:8501`. (Run from repo root so `.env` loads.)
 
 ### "SUPABASE_DB_URL not set"
 
-Check `.env` file exists in the project root with:
+Check `.env` file exists in the project root with (pooler `:6543`, not `:5432`):
 ```
-SUPABASE_DB_URL=postgresql://postgres:...@....supabase.co:5432/postgres
+SUPABASE_DB_URL=postgresql://postgres.<ref>@aws-1-<region>.pooler.supabase.com:6543/postgres
 ```
 
 If not set, Streamlit will error. Restart after fixing `.env`.
@@ -620,28 +639,34 @@ The embedding dimension must match. BAAI/bge-small-en-v1.5 produces **384-dimens
 
 Check the `embedding VECTOR(384)` line in the Supabase table schema.
 
-### "MODAL_ENDPOINT_URL not set"
+### "MODAL_ENDPOINT_URL not set" / 404 "invalid function call"
 
-The Modal endpoint URL isn't in `.env`. After deploying `modal_app.py`, you'll see:
+The endpoint URL isn't in `.env`, or it was guessed. Copy it **exactly** (dashboard
+Endpoints tab → `efar-coder` → copy icon) — the old `--efar-serve.modal.run`
+pattern 404s on Dedicated:
 
 ```
-https://<your-workspace>--efar-serve.modal.run
-```
-
-Add to `.env`:
-```
-MODAL_ENDPOINT_URL=https://<your-workspace>--efar-serve.modal.run
+MODAL_ENDPOINT_URL=https://<workspace>--ep-efar-coder-server.us-west.modal.direct
+MODAL_MODEL=Qwen/Qwen3.5-4B
+MODAL_PROXY_TOKEN=wk-<id>.ws-<secret>
 ```
 
 Then restart Streamlit.
 
-### Model generates gibberish / poor code quality
+| Status | Meaning | Fix |
+|--------|---------|-----|
+| 401 | Bad/missing proxy token | `modal workspace proxy-tokens create`, update `.env` |
+| 404 `invalid function call` | Wrong URL (guessed DIY pattern) | Re-copy from dashboard |
+| 503 | Container still starting | Wait — CLI/UI retry automatically |
+
+### Model generates gibberish / poor code quality / empty answers
 
 Possible causes:
 1. **Poor system prompt** — Fill in `system_prompt.md` with game context (generic prompts → generic answers)
 2. **Cold start quirk** — First request after idle may have lower quality. Subsequent requests are better (due to caching).
 3. **Insufficient context** — Increase `TOP_K` in `rag/retrieve.py` to retrieve more docs (trade-off: longer inference time)
-4. **Model size** — 7B Qwen is smaller than 70B alternatives. Consider upgrading GPU & model if budget allows.
+4. **Thinking budget** — `enable_thinking: False` is set so reasoning can't eat the
+   answer budget. If you re-enable thinking, raise `MAX_TOKENS`/`RESERVED_FOR_OUTPUT` well above 2048.
 
 ### Supabase query fails / "pgvector not installed"
 
@@ -650,52 +675,45 @@ Ensure pgvector extension is enabled:
 2. Search "pgvector" and enable it
 3. Restart your Python process
 
-### "Modal deploy hangs"
+### "Endpoint stuck Starting" / repeated 503s
 
-Modal may be waiting for user input (rare). Check terminal for prompts. If stuck >5 min:
-```bash
-# Cancel (Ctrl+C) and retry
-modal deploy modal_app.py
-```
+The Dedicated container can take several minutes on first provisioning. Check the
+dashboard Endpoints tab → `efar-coder` → Containers. The CLI and UI retry
+automatically; if it stays `Starting` > 5 min, check container logs in the dashboard.
+(`modal deploy modal_app.py` applies to the legacy DIY rollback path only.)
 
 ---
 
 ## Known Limitations
 
 ### Model Size
-- **7B parameters** — Smaller than Claude (70B+) or GPT-4 (1T+), but good for code
-- **Trade-off**: Faster inference, lower VRAM, but sometimes less accurate on complex tasks
-- **Workaround**: Use detailed system prompt + rich context to compensate
-
-### Quantization
-- **AWQ quantization** — Reduces model size from ~14GB to ~5GB to fit A10G VRAM
-- **Trade-off**: Slight accuracy loss vs. fitting on affordable GPU
-- **Workaround**: Use full-precision model on larger GPU (A100, H100) if accuracy critical
+- **4B parameters** (Qwen3.5-4B via Modal catalog) — smaller than Claude/GPT flagships, but fast and cheap
+- **Trade-off**: Faster inference, lower cost, but sometimes less accurate on complex tasks
+- **Workaround**: Detailed system prompt + rich retrieved context + thinking disabled for direct answers
 
 ### Context Window
-- **Max tokens**: 8192
+- **Max tokens**: 16384 (`MAX_MODEL_LEN`, shared by CLI trimmers and UI budget)
 - **Limitation**: Can't process very long code files or design docs
-- **Workaround**: Split long prompts into multiple questions; use system prompt for static context
+- **Workaround**: Split long prompts into multiple questions; history trimmer drops oldest pairs first
 
 ### Vector Search Limitations
-- **Top-K retrieval**: Returns 3 closest docs by default
+- **Top-K retrieval**: Returns 3 closest docs by default (hybrid keyword + vector + expansion)
 - **Limitation**: May miss relevant docs if they're far in embedding space
-- **Workaround**: Use keyword matching (handled by `retrieve.py`) + adjust `TOP_K` parameter
+- **Workaround**: CamelCase keyword matching (handled by `retrieve.py`) + adjust `TOP_K` parameter
 
 ### No Fine-Tuning (Yet)
-- **Current**: Uses pre-trained Qwen2.5-Coder, no custom fine-tuning on your game
+- **Current**: Uses pre-trained Qwen3.5-4B, no custom fine-tuning on your game
 - **Planned**: Add fine-tuning pipeline on your game-specific docs
 - **Workaround**: Use detailed `system_prompt.md` to guide the model
 
 ### Frontend
-- **Current**: Streamlit-based UI (functional but basic)
-- **Planned**: Next.js frontend with prettier UI, markdown rendering, code highlighting
-- **Status**: Not yet implemented
+- **Current**: Streamlit chat UI with streaming, per-code-block copy buttons, Material icons, validation callouts
+- **Planned**: Next.js frontend with prettier UI (optional; Streamlit is fully functional)
 
 ### Cold Starts
-- **Unavoidable**: GPU containers spin up on first request after 180s idle
-- **Duration**: 15-40 seconds
-- **Workaround**: Use pre-warm button or keep-alive logic (not yet implemented)
+- **Unavoidable**: GPU containers spin up on first request after ~180s idle
+- **Duration**: 15-60 seconds, with automatic 503 retry in CLI and UI
+- **Workaround**: Use pre-warm button; affinity routing keeps follow-ups on the warm container
 
 ---
 
@@ -739,12 +757,12 @@ We welcome contributions! Here's how to get involved:
 
 ### Areas We're Looking For Help
 
-- 🎨 **Frontend** — Build a Next.js UI to replace Streamlit
-- 📚 **Docs** — Improve setup guides, add troubleshooting, examples
-- ✅ **Validation** — Better Luau linting, more hallucination detection patterns
-- 🧠 **Fine-tuning** — Create dataset + scripts for game-specific model tuning
-- 🔧 **Dev experience** — Docker setup, one-click deploy scripts, CI/CD
-- 🌐 **Internationalization** — Support non-English Roblox docs / game contexts
+- **Frontend** — Build a Next.js UI to complement Streamlit
+- **Docs** — Improve setup guides, add troubleshooting, examples
+- **Validation** — Better Luau linting, more hallucination detection patterns
+- **Fine-tuning** — Create dataset + scripts for game-specific model tuning
+- **Dev experience** — Docker setup, one-click deploy scripts, CI/CD
+- **Internationalization** — Support non-English Roblox docs / game contexts
 
 ### Code Style
 
@@ -755,6 +773,14 @@ We welcome contributions! Here's how to get involved:
 ---
 
 ## Roadmap
+
+### Shipped (Oct 2026)
+- [x] Modal DIY → Dedicated endpoint migration (`efar-coder`, scale-to-zero, proxy-token auth)
+- [x] Reasoning-budget fix (`enable_thinking: False` — thinking 259 → 0 tokens on trivial prompts)
+- [x] Cold-start 503 auto-retry + affinity routing in CLI and Streamlit
+- [x] Fail-fast Supabase connects (`connect_timeout=10`) with stage logging
+- [x] Streamlit per-code-block copy buttons + zero-emoji Material icon pass
+- [x] CLI smoke-test flags (`--no-retrieval`, `--stream`, `--once`)
 
 ### Q3 2026
 - [ ] Next.js frontend (prettier UI, better code display)
@@ -792,7 +818,8 @@ Roblox has unique APIs, patterns, and best practices. A Roblox-focused assistant
 **Future goal!** Currently, we use system prompt for game context. A fine-tuning pipeline is planned for Q3 2026.
 
 ### What if I run out of Modal credits?
-You pay out-of-pocket (typically $0.50-$5/day for active development). Set up billing alerts in Modal dashboard.
+Dedicated endpoints bill per-second compute and scale to $0 when idle, so typical
+experimental use stays inside the $30/mo free tier. Set up billing alerts in the Modal dashboard regardless.
 
 ### Can I use EFAR without Supabase?
 Currently, no—the RAG pipeline requires vector search. Future versions may support other vector DBs (Pinecone, Weaviate, Milvus).
@@ -817,24 +844,33 @@ EFAR is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
 
 ## Support
 
-- 💬 **GitHub Issues** — Bug reports, feature requests
-- 💭 **GitHub Discussions** — Questions, ideas, show-and-tell
+- **GitHub Issues** — Bug reports, feature requests
+- **GitHub Discussions** — Questions, ideas, show-and-tell
 
 ---
 
 ## Acknowledgments
 
 Built with:
-- [Qwen2.5-Coder](https://github.com/QwenLM/Qwen2.5-Coder) — The LLM powering inference
-- [Modal](https://modal.com) — Serverless GPU hosting
+- [Qwen3.5-4B](https://huggingface.co/Qwen) — The LLM powering inference (via Modal catalog)
+- [Modal](https://modal.com) — Serverless GPU hosting (Dedicated endpoint)
 - [Supabase](https://supabase.com) — Vector database (pgvector)
-- [vLLM](https://vllm.ai/) — Fast LLM serving
 - [FastEmbed](https://github.com/qdrant/fastembed) — Lightweight embeddings
 - [Streamlit](https://streamlit.io/) — Chat UI framework
-- [Roblox Creator Docs](https://github.com/Roblox/creator-docs) — Official API reference
+- [Roblox Creator Docs](https://github.com/Roblox/creator-docs) — Official API reference (3,933 chunks)
 
 ---
 
-**Happy coding! 🚀**
+## CV Bullets
 
-> made with 💜 by someone too poor to afford Claude
+Copy-paste ready (trim to fit):
+
+- Built solo RAG coding assistant for Roblox Luau: 3,933 doc chunks (FastEmbed `bge-small-en-v1.5` + Supabase pgvector, hybrid keyword/vector retrieval) grounding `Qwen3.5-4B` on a Modal Dedicated scale-to-zero endpoint.
+- Shipped OpenAI-compatible inference path with proxy-token auth, cold-start 503 auto-retry, affinity routing, and reasoning-budget fix (259 → 0 thinking tokens on trivial prompts).
+- Built Streamlit chat UI (live SSE streaming, per-code-block copy buttons, Material icons) plus a matching CLI with `--no-retrieval`/`--stream` smoke-test flags.
+- Hardened data path: Supabase connects fail fast (`connect_timeout=10`), stage-level logging, token-budget trimmers shared across CLI/UI (`MAX_MODEL_LEN=16384`).
+- Operated inside Modal's $30/mo free tier (per-second Dedicated billing, $0 when idle).
+
+---
+
+**Happy coding!**
