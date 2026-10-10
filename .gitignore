@@ -27,3 +27,5 @@ Thumbs.db
 # NOTE: evals/ (golden Q&A) and rag/custom-docs/ (pattern docs) are
 # intentionally TRACKED - fresh clones need them to reproduce grounding.
 # rag/chunks.jsonl stays ignored + untracked (regenerable 4MB artifact).
+# docs/ is local-only (audit/roadmap/setup/resume notes) - kept on disk, out of git.
+docs/
